@@ -15,20 +15,20 @@ import (
 
 var (
 	// Common flags
-	inputFile           string
-	directory           string
-	depth               int
-	outputFile          string
-	languages           []string
-	excludes            []string
-	jobs                int
-	verbose             bool
-	shortOutput         bool
+	inputFile   string
+	directory   string
+	depth       int
+	outputFile  string
+	languages   []string
+	excludes    []string
+	jobs        int
+	verbose     bool
+	shortOutput bool
 
 	// Todo command flags
-	maxContext          int
-	groupByType         bool
-	filter              []string
+	maxContext  int
+	groupByType bool
+	filter      []string
 
 	// Coherence command flags
 	todoFilter          string
@@ -41,9 +41,9 @@ var (
 	minLineCount        int
 
 	// Monitoring options
-	monitorEnabled      bool
-	monitorFile         string
-	monitorComment      string
+	monitorEnabled bool
+	monitorFile    string
+	monitorComment string
 
 	// Additional options for existing commands
 	format              string
@@ -58,24 +58,30 @@ var (
 	showRelations       bool
 	showStats           bool
 	iaOutput            bool
+	sortBy              string
+	filterNamespace     string
+	minLineNumber       int
+	maxLineNumber       int
+	hidePrivate         bool
+	onlyPublic          bool
 
 	// Docs command flags
-	includeCode         bool
+	includeCode bool
 
 	// Profile command flags
-	executable          string
-	args                []string
-	profileType         string
-	duration            int
+	executable  string
+	args        []string
+	profileType string
+	duration    int
 
 	// Refactor command flags
-	pattern             string
-	replacement         string
-	regexMode           bool
-	wholeWord           bool
-	caseSensitive       bool
-	dryRun              bool
-	backup              bool
+	pattern       string
+	replacement   string
+	regexMode     bool
+	wholeWord     bool
+	caseSensitive bool
+	dryRun        bool
+	backup        bool
 )
 
 // Custom help templates with colors
@@ -148,18 +154,18 @@ finding TODOs, and checking coherence between headers and implementations.`,
 		cmdStyle := color.New(color.FgCyan).SprintFunc()
 		subCmdStyle := color.New(color.FgYellow).SprintFunc()
 		flagStyle := color.New(color.FgMagenta).SprintFunc()
-		
+
 		fmt.Println(titleStyle("Go Project (gop) v1.0"))
 		fmt.Println(headerStyle("A comprehensive tool for C/C++ code analysis and management"))
 		fmt.Println()
-		
+
 		// Print usage
 		fmt.Println(headerStyle("Usage:"))
 		fmt.Printf("  %s [command]\n\n", cmdStyle(cmd.CommandPath()))
-		
+
 		// Print available commands
 		fmt.Println(headerStyle("Available Commands:"))
-		
+
 		// Find the longest command name for proper justification
 		maxLen := 0
 		for _, subcmd := range cmd.Commands() {
@@ -169,18 +175,18 @@ finding TODOs, and checking coherence between headers and implementations.`,
 				}
 			}
 		}
-		
+
 		// Group commands by category for better organization
 		analysisCommands := []*cobra.Command{}
 		utilityCommands := []*cobra.Command{}
 		otherCommands := []*cobra.Command{}
-		
+
 		// Categorize commands
 		for _, subcmd := range cmd.Commands() {
 			if !subcmd.IsAvailableCommand() && subcmd.Name() != "help" {
 				continue
 			}
-			
+
 			switch subcmd.Name() {
 			case "registry", "call-graph", "memory-safety", "undefined-behavior", "complexity", "api-usage", "include-graph", "coherence", "duplicate":
 				analysisCommands = append(analysisCommands, subcmd)
@@ -190,40 +196,40 @@ finding TODOs, and checking coherence between headers and implementations.`,
 				otherCommands = append(otherCommands, subcmd)
 			}
 		}
-		
+
 		// Print analysis commands
 		if len(analysisCommands) > 0 {
 			fmt.Println(headerStyle("  Analysis Commands:"))
 			for _, subcmd := range analysisCommands {
-				fmt.Printf("    %s  %s\n", 
+				fmt.Printf("    %s  %s\n",
 					subCmdStyle(fmt.Sprintf("%-*s", maxLen+2, subcmd.Name())),
 					subcmd.Short)
 			}
 			fmt.Println()
 		}
-		
+
 		// Print utility commands
 		if len(utilityCommands) > 0 {
 			fmt.Println(headerStyle("  Utility Commands:"))
 			for _, subcmd := range utilityCommands {
-				fmt.Printf("    %s  %s\n", 
+				fmt.Printf("    %s  %s\n",
 					subCmdStyle(fmt.Sprintf("%-*s", maxLen+2, subcmd.Name())),
 					subcmd.Short)
 			}
 			fmt.Println()
 		}
-		
+
 		// Print other commands
 		if len(otherCommands) > 0 {
 			fmt.Println(headerStyle("  Other Commands:"))
 			for _, subcmd := range otherCommands {
-				fmt.Printf("    %s  %s\n", 
+				fmt.Printf("    %s  %s\n",
 					subCmdStyle(fmt.Sprintf("%-*s", maxLen+2, subcmd.Name())),
 					subcmd.Short)
 			}
 			fmt.Println()
 		}
-		
+
 		// Print flags if available
 		if cmd.HasAvailableLocalFlags() {
 			fmt.Println(headerStyle("Flags:"))
@@ -232,19 +238,19 @@ finding TODOs, and checking coherence between headers and implementations.`,
 				if flag.Hidden {
 					return
 				}
-				
+
 				name := ""
 				if flag.Shorthand != "" && flag.ShorthandDeprecated == "" {
 					name = fmt.Sprintf("-%s, --%s", flag.Shorthand, flag.Name)
 				} else {
 					name = fmt.Sprintf("    --%s", flag.Name)
 				}
-				
+
 				fmt.Printf("  %s  %s\n", flagStyle(fmt.Sprintf("%-20s", name)), flag.Usage)
 			})
 			fmt.Println()
 		}
-		
+
 		// Print global flags
 		if cmd.HasAvailableInheritedFlags() {
 			fmt.Println(headerStyle("Global Flags:"))
@@ -252,18 +258,18 @@ finding TODOs, and checking coherence between headers and implementations.`,
 				if flag.Hidden {
 					return
 				}
-				
+
 				name := ""
 				if flag.Shorthand != "" && flag.ShorthandDeprecated == "" {
 					name = fmt.Sprintf("-%s, --%s", flag.Shorthand, flag.Name)
 				} else {
 					name = fmt.Sprintf("    --%s", flag.Name)
 				}
-				
+
 				fmt.Printf("  %s  %s\n", flagStyle(fmt.Sprintf("%-20s", name)), flag.Usage)
 			})
 		}
-		
+
 		// Print additional help text
 		fmt.Println()
 		fmt.Println(headerStyle("Use"), cmdStyle("gop [command] --help"), headerStyle("for more information about a command."))
@@ -289,7 +295,7 @@ finding TODOs, and checking coherence between headers and implementations.`,
 	rootCmd.PersistentFlags().StringVarP(&outputFile, "output-file", "o", "", "Path to output file for results")
 	rootCmd.PersistentFlags().StringSliceVarP(&languages, "languages", "l", []string{"c", "cpp", "h", "hpp"}, "Languages to analyze (e.g., 'c', 'cpp')")
 	rootCmd.PersistentFlags().StringSliceVarP(&excludes, "excludes", "e", []string{}, "Directories or files to exclude")
-	rootCmd.PersistentFlags().IntVarP(&jobs, "jobs", "j", runtime.NumCPU(), "Number of concurrent jobs for processing") 
+	rootCmd.PersistentFlags().IntVarP(&jobs, "jobs", "j", runtime.NumCPU(), "Number of concurrent jobs for processing")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 
 	// Concat command
@@ -365,36 +371,52 @@ Examples:
 		Run: func(cmd *cobra.Command, args []string) {
 			// No default output file - will output to console if not specified
 			options := analyzer.RegistryOptions{
-				InputFile:  inputFile,
-				Directory:  directory,
-				Depth:      depth,
-				OutputFile: outputFile,
-				Languages:  languages,
-				Excludes:   excludes,
-				Jobs:       jobs,
-				Types:      types,
-				Short:      shortRegistry || shortOutput,
-				Relations:  showRelations,
-				Stats:      showStats,
-				IAOutput:   iaOutput,
-				Verbose:    verbose,
+				InputFile:       inputFile,
+				Directory:       directory,
+				Depth:           depth,
+				OutputFile:      outputFile,
+				Languages:       languages,
+				Excludes:        excludes,
+				Jobs:            jobs,
+				Types:           types,
+				Short:           shortRegistry || shortOutput,
+				Relations:       showRelations,
+				Stats:           showStats,
+				IAOutput:        iaOutput,
+				Verbose:         verbose,
+				SortBy:          sortBy,
+				FilterNamespace: filterNamespace,
+				MinLineNumber:   minLineNumber,
+				MaxLineNumber:   maxLineNumber,
+				HidePrivate:     hidePrivate,
+				OnlyPublic:      onlyPublic,
+				NamesOnly:       namesOnly,
+				Format:          format,
 			}
 			analyzer.CreateRegistry(options)
 		},
 	}
 
 	// Define flags for registry command
-	registryCmd.Flags().StringSliceVar(&types, "types", []string{"all"}, "Types to include in output (e.g., function,method,constant,all)")
+	registryCmd.Flags().StringSliceVar(&types, "types", []string{"all"}, "Types to include in output (e.g., function,method,constant,class,struct,enum,typedef,union,macro,variable,template,namespace)")
 	registryCmd.Flags().BoolVarP(&shortRegistry, "short-registry", "s", false, "Use short output format")
 	registryCmd.Flags().BoolVarP(&showRelations, "show-relations", "r", false, "Display relations between files and methods")
 	registryCmd.Flags().BoolVar(&showStats, "show-stats", false, "Show statistics (counts of methods, etc.)")
 	registryCmd.Flags().BoolVar(&iaOutput, "ai-output", false, "Output in a format optimized for AI processing")
+	registryCmd.Flags().StringVar(&sortBy, "sort-by", "name", "Sort elements by: name, type, file, line")
+	registryCmd.Flags().StringVar(&filterNamespace, "namespace", "", "Filter by specific namespace or class")
+	registryCmd.Flags().IntVar(&minLineNumber, "min-line", 0, "Minimum line number to include")
+	registryCmd.Flags().IntVar(&maxLineNumber, "max-line", 0, "Maximum line number to include (0 for no limit)")
+	registryCmd.Flags().BoolVar(&hidePrivate, "hide-private", false, "Hide private and static members")
+	registryCmd.Flags().BoolVar(&onlyPublic, "only-public", false, "Show only public members")
+	registryCmd.Flags().BoolVar(&namesOnly, "names-only", false, "Show only element names (one per line)")
+	registryCmd.Flags().StringVar(&format, "format", "md", "Output format: md (markdown), json, csv, txt")
 
 	// Todo command
 	todoCmd := &cobra.Command{
 		Use:   "todo",
 		Short: "List all TODO items in the codebase",
-Long: `List all methods marked as TODO in files.
+		Long: `List all methods marked as TODO in files.
 By default, searches for "TODO", "placeholders", "simplification", "heuristic", "todo", "simple", etc.
 
 This command helps you track and manage technical debt by:
@@ -569,7 +591,7 @@ Examples:
 			analyzer.FindDuplicates(options)
 		},
 	}
-	
+
 	// Define flags for duplicate command
 	duplicateCmd.Flags().Float64Var(&similarityThreshold, "threshold", 0.8, "Similarity threshold for duplicate detection (0.0-1.0)")
 	duplicateCmd.Flags().IntVar(&minLineCount, "min-lines", 5, "Minimum number of lines for a code block to be considered")
@@ -588,7 +610,7 @@ Examples:
 			fmt.Println(color.GreenString("gop version 1.0.0"))
 		},
 	})
-	
+
 	// Call Graph command
 	callGraphCmd := &cobra.Command{
 		Use:   "call-graph",
@@ -621,7 +643,7 @@ Examples:
 			analyzer.GenerateCallGraph(options)
 		},
 	}
-	
+
 	// Define flags for call-graph command
 	callGraphCmd.Flags().StringVar(&format, "format", "md", "Output format (md, dot, json)")
 	callGraphCmd.Flags().BoolVar(&shortOutput, "short", false, "Use short output format")
@@ -655,7 +677,7 @@ Examples:
 			analyzer.AnalyzeMemorySafety(options)
 		},
 	}
-	
+
 	// Define flags for memory-safety command
 	memorySafetyCmd.Flags().BoolVar(&shortOutput, "short", false, "Use short output format")
 
@@ -675,26 +697,26 @@ Examples:
 		Run: func(cmd *cobra.Command, args []string) {
 			// No default output file - will output to console if not specified
 			options := analyzer.UndefinedBehaviorOptions{
-				InputFile:           inputFile,
-				Directory:           directory,
-				Depth:               depth,
-				OutputFile:          outputFile,
-				Languages:           languages,
-				Excludes:            excludes,
-				Jobs:                jobs,
-				CheckSignedOverflow: true,
+				InputFile:            inputFile,
+				Directory:            directory,
+				Depth:                depth,
+				OutputFile:           outputFile,
+				Languages:            languages,
+				Excludes:             excludes,
+				Jobs:                 jobs,
+				CheckSignedOverflow:  true,
 				CheckNullDereference: true,
-				CheckDivByZero:      true,
-				CheckUninitVar:      true,
-				CheckOutOfBounds:    true,
+				CheckDivByZero:       true,
+				CheckUninitVar:       true,
+				CheckOutOfBounds:     true,
 				CheckShiftOperations: true,
-				Short:               shortOutput,
-				Verbose:             verbose,
+				Short:                shortOutput,
+				Verbose:              verbose,
 			}
 			analyzer.AnalyzeUndefinedBehavior(options)
 		},
 	}
-	
+
 	// Define flags for undefined-behavior command
 	undefinedBehaviorCmd.Flags().BoolVar(&shortOutput, "short", false, "Use short output format")
 
@@ -728,7 +750,7 @@ Examples:
 			analyzer.AnalyzeComplexity(options)
 		},
 	}
-	
+
 	// Define flags for complexity command
 	complexityCmd.Flags().IntVar(&complexityThreshold, "threshold", 10, "Complexity threshold for flagging functions")
 	complexityCmd.Flags().BoolVar(&shortOutput, "short", false, "Use short output format")
@@ -764,7 +786,7 @@ Examples:
 			analyzer.AnalyzeAPIUsage(options)
 		},
 	}
-	
+
 	// Define flags for api-usage command
 	apiUsageCmd.Flags().StringVar(&apiFile, "api-file", "", "Path to API definition file")
 	apiUsageCmd.Flags().BoolVar(&shortOutput, "short", false, "Use short output format")
@@ -799,7 +821,7 @@ Examples:
 			analyzer.GenerateIncludeGraph(options)
 		},
 	}
-	
+
 	// Define flags for include-graph command
 	includeGraphCmd.Flags().StringVar(&format, "format", "md", "Output format (md, dot, json)")
 	includeGraphCmd.Flags().BoolVar(&shortOutput, "short", false, "Use short output format")
@@ -963,6 +985,7 @@ Examples:
 
 	// Add commands to root command
 	rootCmd.AddCommand(concatCmd)
+	rootCmd.AddCommand(registryCmd)
 	rootCmd.AddCommand(todoCmd)
 	rootCmd.AddCommand(coherenceCmd)
 	rootCmd.AddCommand(duplicateCmd)
@@ -972,14 +995,10 @@ Examples:
 	rootCmd.AddCommand(docsCmd)
 	rootCmd.AddCommand(profileCmd)
 	rootCmd.AddCommand(refactorCmd)
-	rootCmd.AddCommand(coherenceCmd)
-	rootCmd.AddCommand(duplicateCmd)
-	rootCmd.AddCommand(callGraphCmd)
 	rootCmd.AddCommand(memorySafetyCmd)
 	rootCmd.AddCommand(undefinedBehaviorCmd)
 	rootCmd.AddCommand(complexityCmd)
 	rootCmd.AddCommand(apiUsageCmd)
-	rootCmd.AddCommand(includeGraphCmd)
 
 	// Execute the root command
 	if err := rootCmd.Execute(); err != nil {

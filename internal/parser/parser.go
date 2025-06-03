@@ -23,6 +23,8 @@ const (
 	TypeNamespace ElementType = "namespace"
 	TypeTemplate  ElementType = "template"
 	TypeMacro     ElementType = "macro"
+	TypeTypedef   ElementType = "typedef"
+	TypeUnion     ElementType = "union"
 	TypeUnknown   ElementType = "unknown"
 )
 
@@ -234,7 +236,7 @@ func ParseCodeContent(content string, options ParseOptions) []CodeElement {
 					currentNamespace = matches[2]
 				}
 				methodName := matches[3]
-				
+
 				// Extract parameters if requested
 				var parameters []string
 				if options.ParseParameters && len(matches) > 4 && matches[4] != "" {
@@ -244,19 +246,19 @@ func ParseCodeContent(content string, options ParseOptions) []CodeElement {
 						parameters = append(parameters, strings.TrimSpace(p))
 					}
 				}
-				
+
 				// Determine visibility and other modifiers
 				visibility := "public"
 				isStatic := false
 				isConst := false
-				
+
 				if strings.Contains(line, "static") {
 					isStatic = true
 				}
 				if strings.Contains(line, "const") {
 					isConst = true
 				}
-				
+
 				// Create the element
 				elements = append(elements, CodeElement{
 					Type:        TypeMethod,
@@ -271,7 +273,7 @@ func ParseCodeContent(content string, options ParseOptions) []CodeElement {
 					IsStatic:    isStatic,
 					IsConst:     isConst,
 				})
-				
+
 				commentBlock.Reset()
 				continue
 			}
@@ -283,7 +285,7 @@ func ParseCodeContent(content string, options ParseOptions) []CodeElement {
 				// Extract return type and function name
 				returnType := matches[1]
 				functionName := matches[2]
-				
+
 				// Extract parameters if requested
 				var parameters []string
 				if options.ParseParameters && len(matches) > 3 && matches[3] != "" {
@@ -293,18 +295,18 @@ func ParseCodeContent(content string, options ParseOptions) []CodeElement {
 						parameters = append(parameters, strings.TrimSpace(p))
 					}
 				}
-				
+
 				// Determine modifiers
 				isStatic := false
 				isInline := false
-				
+
 				if strings.Contains(line, "static") {
 					isStatic = true
 				}
 				if strings.Contains(line, "inline") {
 					isInline = true
 				}
-				
+
 				// Create the element
 				elements = append(elements, CodeElement{
 					Type:        TypeFunction,
@@ -318,7 +320,7 @@ func ParseCodeContent(content string, options ParseOptions) []CodeElement {
 					IsStatic:    isStatic,
 					IsInline:    isInline,
 				})
-				
+
 				commentBlock.Reset()
 				continue
 			}
@@ -327,14 +329,118 @@ func ParseCodeContent(content string, options ParseOptions) []CodeElement {
 		// Extract templates
 		if options.ExtractAll || options.ExtractTypes["templates"] {
 			if matches := regexes.templateRegex.FindStringSubmatch(line); len(matches) > 1 {
+				templateName := ""
+				if len(matches) > 3 && matches[3] != "" {
+					templateName = matches[3]
+				} else if len(matches) > 5 && matches[5] != "" {
+					templateName = matches[5]
+				}
+
 				elements = append(elements, CodeElement{
 					Type:        TypeTemplate,
-					Name:        matches[2], // Template name is in the second capture group
+					Name:        templateName,
 					Signature:   strings.TrimSpace(line),
 					LineNumber:  lineNumber + 1,
 					Description: commentBlock.String(),
 					Namespace:   currentNamespace,
 					IsTemplate:  true,
+				})
+				commentBlock.Reset()
+				continue
+			}
+		}
+
+		// Extract typedefs
+		if options.ExtractAll || options.ExtractTypes["typedefs"] {
+			if matches := regexes.typedefRegex.FindStringSubmatch(line); len(matches) > 2 {
+				elements = append(elements, CodeElement{
+					Type:        TypeTypedef,
+					Name:        matches[2],
+					Signature:   strings.TrimSpace(line),
+					LineNumber:  lineNumber + 1,
+					Description: commentBlock.String(),
+					Namespace:   currentNamespace,
+					ReturnType:  matches[1], // Original type
+				})
+				commentBlock.Reset()
+				continue
+			}
+		}
+
+		// Extract unions
+		if options.ExtractAll || options.ExtractTypes["unions"] {
+			if matches := regexes.unionRegex.FindStringSubmatch(line); len(matches) > 1 {
+				elements = append(elements, CodeElement{
+					Type:        TypeUnion,
+					Name:        matches[1],
+					Signature:   strings.TrimSpace(line),
+					LineNumber:  lineNumber + 1,
+					Description: commentBlock.String(),
+					Namespace:   currentNamespace,
+				})
+				commentBlock.Reset()
+				continue
+			}
+		}
+
+		// Extract variables (global/static variables)
+		if options.ExtractAll || options.ExtractTypes["variables"] {
+			// Skip if it looks like a function declaration
+			if !strings.Contains(line, "(") {
+				if matches := regexes.variableRegex.FindStringSubmatch(line); len(matches) > 2 {
+					// Skip common keywords that aren't variable declarations
+					varName := matches[2]
+					if varName != "main" && varName != "if" && varName != "for" && varName != "while" {
+						isStatic := strings.Contains(line, "static")
+						isExtern := strings.Contains(line, "extern")
+
+						elements = append(elements, CodeElement{
+							Type:        TypeVariable,
+							Name:        varName,
+							Signature:   strings.TrimSpace(line),
+							LineNumber:  lineNumber + 1,
+							Description: commentBlock.String(),
+							Namespace:   currentNamespace,
+							ReturnType:  matches[1],
+							IsStatic:    isStatic,
+							Visibility: func() string {
+								if isExtern {
+									return "extern"
+								} else if isStatic {
+									return "static"
+								}
+								return "global"
+							}(),
+						})
+						commentBlock.Reset()
+						continue
+					}
+				}
+			}
+		}
+
+		// Extract function-like macros
+		if options.ExtractAll || options.ExtractTypes["macros"] {
+			if matches := regexes.macroRegex.FindStringSubmatch(line); len(matches) > 2 {
+				// Extract parameters
+				var parameters []string
+				if len(matches) > 2 && matches[2] != "" {
+					paramStr := matches[2]
+					paramList := strings.Split(paramStr, ",")
+					for _, p := range paramList {
+						parameters = append(parameters, strings.TrimSpace(p))
+					}
+				}
+
+				elements = append(elements, CodeElement{
+					Type:        TypeMacro,
+					Name:        matches[1],
+					Signature:   strings.TrimSpace(line),
+					LineNumber:  lineNumber + 1,
+					Description: commentBlock.String(),
+					Namespace:   currentNamespace,
+					Parameters:  parameters,
+					IsMacro:     true,
 				})
 				commentBlock.Reset()
 				continue
@@ -358,34 +464,44 @@ type RegexPatterns struct {
 	methodRegex    *regexp.Regexp
 	functionRegex  *regexp.Regexp
 	templateRegex  *regexp.Regexp
+	typedefRegex   *regexp.Regexp
+	unionRegex     *regexp.Regexp
+	variableRegex  *regexp.Regexp
+	macroRegex     *regexp.Regexp
 }
 
 // getRegexPatterns returns compiled regex patterns for code parsing
 func getRegexPatterns() RegexPatterns {
 	return RegexPatterns{
-		// Namespace pattern
-		namespaceRegex: regexp.MustCompile(`namespace\s+(\w+)\s*{`),
-		
-		// Class/struct pattern
-		classRegex: regexp.MustCompile(`(class|struct)\s+(\w+)(?:\s*:\s*\w+(?:\s*,\s*\w+)*)?\s*{`),
-		
-		// Define pattern
-		defineRegex: regexp.MustCompile(`#define\s+(\w+)\s+(.+)`),
-		
-		// Const variable pattern
-		constVarRegex: regexp.MustCompile(`const\s+(\w+(?:\s*[*&]\s*)?)\s+(\w+)\s*=`),
-		
-		// Enum pattern
-		enumRegex: regexp.MustCompile(`enum\s+(\w+)\s*{`),
-		
-		// Method pattern (class member function)
-		methodRegex: regexp.MustCompile(`(\w+(?:\s*[*&]\s*)?)\s+(\w+)::(\w+)\s*\(([^)]*)\)\s*(?:const)?\s*(?:{|;)`),
-		
-		// Function pattern
-		functionRegex: regexp.MustCompile(`(\w+(?:\s*[*&]\s*)?)\s+(\w+)\s*\(([^)]*)\)\s*(?:{|;)`),
-		
-		// Template pattern
-		templateRegex: regexp.MustCompile(`template\s*<([^>]*)>\s*(class|struct|\w+(?:\s*[*&]\s*)?)\s+(\w+)`),
+		// Namespace pattern - improved to handle nested namespaces
+		namespaceRegex: regexp.MustCompile(`^\s*namespace\s+([a-zA-Z_][a-zA-Z0-9_]*(?:::[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\{`),
+
+		// Class/struct pattern - improved to handle inheritance and templates
+		classRegex: regexp.MustCompile(`^\s*(class|struct)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*(?:\s*:\s*(?:public|private|protected)?\s*[a-zA-Z_][a-zA-Z0-9_:]*(?:\s*,\s*(?:public|private|protected)?\s*[a-zA-Z_][a-zA-Z0-9_:]*)*)?`),
+
+		// Define pattern - improved to handle multi-line defines and function-like macros
+		defineRegex: regexp.MustCompile(`^\s*#define\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^)]*\))?\s+(.*?)(?:\\s*$|$)`),
+
+		// Const variable pattern - improved to handle pointers and references
+		constVarRegex: regexp.MustCompile(`^\s*(?:static\s+)?const\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\s*[*&]+\s*)*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=`),
+
+		// Enum pattern - improved to handle enum classes and typed enums
+		enumRegex: regexp.MustCompile(`^\s*enum\s*(?:class\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\s*:\s*[a-zA-Z_][a-zA-Z0-9_]*)?`),
+
+		// Method pattern - improved to handle const, static, virtual, and templates
+		methodRegex: regexp.MustCompile(`^\s*(?:virtual\s+|static\s+|inline\s+)*([a-zA-Z_][a-zA-Z0-9_]*(?:\s*[*&]+\s*)*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*::\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*(?:const)?\s*(?:override)?\s*(?:final)?\s*(?:\{|;)`),
+
+		// Function pattern - improved to handle storage classes and attributes
+		functionRegex: regexp.MustCompile(`^\s*(?:extern\s+|static\s+|inline\s+)*([a-zA-Z_][a-zA-Z0-9_]*(?:\s*[*&]+\s*)*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*(?:\{|;)`),
+
+		// Template pattern - improved to handle complex template declarations
+		templateRegex: regexp.MustCompile(`^\s*template\s*<([^>]*)>\s*(?:(class|struct|typename)\s+([a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_]*(?:\s*[*&]+\s*)*)\s+([a-zA-Z_][a-zA-Z0-9_]*))`),
+
+		// Add new patterns for additional element types
+		typedefRegex:  regexp.MustCompile(`^\s*typedef\s+(.+?)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;`),
+		unionRegex:    regexp.MustCompile(`^\s*union\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\{`),
+		variableRegex: regexp.MustCompile(`^\s*(?:extern\s+|static\s+)?([a-zA-Z_][a-zA-Z0-9_]*(?:\s*[*&]+\s*)*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=.*)?;`),
+		macroRegex:    regexp.MustCompile(`^\s*#define\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s+(.*?)(?:\\s*$|$)`),
 	}
 }
 
@@ -396,7 +512,7 @@ func ExtractDeclarations(filePath string) []CodeElement {
 	if err != nil {
 		return nil
 	}
-	
+
 	// Create parse options focused on functions and methods
 	options := ParseOptions{
 		ExtractTypes: map[string]bool{
@@ -407,10 +523,10 @@ func ExtractDeclarations(filePath string) []CodeElement {
 		ParseParameters: true,
 		ParseNamespaces: true,
 	}
-	
+
 	// Parse the content
 	elements := ParseCodeContent(string(content), options)
-	
+
 	// Filter only function and method declarations
 	var declarations []CodeElement
 	for _, elem := range elements {
@@ -418,37 +534,37 @@ func ExtractDeclarations(filePath string) []CodeElement {
 			declarations = append(declarations, elem)
 		}
 	}
-	
+
 	return declarations
 }
 
 // FindImplementations finds implementations for a given declaration
 func FindImplementations(declaration CodeElement, files []string) []CodeElement {
 	var implementations []CodeElement
-	
+
 	// Create regex to find implementations
 	pattern := fmt.Sprintf(`\b%s\b.*\([^)]*\)\s*{`, regexp.QuoteMeta(declaration.Name))
 	implRegex := regexp.MustCompile(pattern)
-	
+
 	// Search each file for implementations
 	for _, file := range files {
 		// Skip header files
 		if isHeaderFile(file) {
 			continue
 		}
-		
+
 		// Read file content
 		content, err := os.ReadFile(file)
 		if err != nil {
 			continue
 		}
-		
+
 		// Find matches
 		matches := implRegex.FindAllStringIndex(string(content), -1)
 		if len(matches) > 0 {
 			// Parse the file to get full implementation details
 			elements := ExtractCodeElements(file, []string{"functions", "methods"})
-			
+
 			// Find matching elements
 			for _, elem := range elements {
 				if elem.Name == declaration.Name {
@@ -457,7 +573,7 @@ func FindImplementations(declaration CodeElement, files []string) []CodeElement 
 			}
 		}
 	}
-	
+
 	return implementations
 }
 

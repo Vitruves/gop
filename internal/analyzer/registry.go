@@ -277,156 +277,180 @@ func extractCodeElements(files []string, options RegistryOptions) []CodeElement 
 
 // deduplicateElements removes duplicate code elements, prioritizing implementations over declarations
 func deduplicateElements(elements []CodeElement) []CodeElement {
-	// Create maps to track elements by name and type
-	elementMap := make(map[string]map[ElementType][]CodeElement)
+	// Create maps to track elements by normalized signature
+	elementMap := make(map[string][]CodeElement)
 
-	// Group elements by name and type
+	// Group elements by normalized signature
 	for _, elem := range elements {
-		if elementMap[elem.Name] == nil {
-			elementMap[elem.Name] = make(map[ElementType][]CodeElement)
-		}
-		elementMap[elem.Name][elem.Type] = append(elementMap[elem.Name][elem.Type], elem)
+		// Create a normalized key for better matching
+		key := createNormalizedKey(elem)
+		elementMap[key] = append(elementMap[key], elem)
 	}
 
 	var deduplicatedElements []CodeElement
 
-	// For each unique name and type combination
-	for _, typeMap := range elementMap {
-		for elementType, elemList := range typeMap {
-			if len(elemList) == 1 {
-				// Only one element, keep it
-				deduplicatedElements = append(deduplicatedElements, elemList[0])
-			} else {
-				// Multiple elements with same name and type - need to deduplicate
-
-				// For functions and methods, prioritize implementation files over header files
-				if elementType == TypeFunction || elementType == TypeMethod {
-					var chosen CodeElement
-					hasImplementation := false
-
-					// Look for implementation files first (.c, .cpp, .cc, .cxx)
-					for _, elem := range elemList {
-						ext := strings.ToLower(filepath.Ext(elem.FilePath))
-						if ext == ".c" || ext == ".cpp" || ext == ".cc" || ext == ".cxx" {
-							chosen = elem
-							hasImplementation = true
-							break
-						}
-					}
-
-					// If no implementation found, use the first header file
-					if !hasImplementation {
-						for _, elem := range elemList {
-							ext := strings.ToLower(filepath.Ext(elem.FilePath))
-							if ext == ".h" || ext == ".hpp" || ext == ".hxx" {
-								chosen = elem
-								break
-							}
-						}
-					}
-
-					// If still no element chosen, use the first one
-					if chosen.Name == "" {
-						chosen = elemList[0]
-					}
-
-					deduplicatedElements = append(deduplicatedElements, chosen)
-				} else if elementType == TypeClass || elementType == TypeStruct || elementType == TypeUnion || elementType == TypeEnum {
-					// For type definitions, prioritize header files as they're typically the canonical definition
-					var chosen CodeElement
-					hasHeaderDefinition := false
-
-					// Look for header files first (.h, .hpp, .hxx)
-					for _, elem := range elemList {
-						ext := strings.ToLower(filepath.Ext(elem.FilePath))
-						if ext == ".h" || ext == ".hpp" || ext == ".hxx" {
-							chosen = elem
-							hasHeaderDefinition = true
-							break
-						}
-					}
-
-					// If no header found, use the first implementation file
-					if !hasHeaderDefinition {
-						for _, elem := range elemList {
-							ext := strings.ToLower(filepath.Ext(elem.FilePath))
-							if ext == ".c" || ext == ".cpp" || ext == ".cc" || ext == ".cxx" {
-								chosen = elem
-								break
-							}
-						}
-					}
-
-					// If still no element chosen, use the first one
-					if chosen.Name == "" {
-						chosen = elemList[0]
-					}
-
-					deduplicatedElements = append(deduplicatedElements, chosen)
-				} else if elementType == TypeConstant || elementType == TypeMacro || elementType == TypeTypedef {
-					// For constants, macros, and typedefs, prioritize header files
-					signatureMap := make(map[string]CodeElement)
-					for _, elem := range elemList {
-						// Create a key that includes signature to differentiate truly different elements
-						key := elem.Signature
-						if key == "" {
-							key = filepath.Base(elem.FilePath) // Use filename as fallback
-						}
-
-						// Prioritize header files for these types
-						if existing, exists := signatureMap[key]; exists {
-							currentExt := strings.ToLower(filepath.Ext(elem.FilePath))
-							existingExt := strings.ToLower(filepath.Ext(existing.FilePath))
-
-							// If current is header and existing is implementation, replace
-							if (currentExt == ".h" || currentExt == ".hpp" || currentExt == ".hxx") &&
-								(existingExt == ".c" || existingExt == ".cpp" || existingExt == ".cc" || existingExt == ".cxx") {
-								signatureMap[key] = elem
-							}
-						} else {
-							signatureMap[key] = elem
-						}
-					}
-
-					// Add all unique signature elements
-					for _, elem := range signatureMap {
-						deduplicatedElements = append(deduplicatedElements, elem)
-					}
-				} else {
-					// For other types (variables, namespaces, templates), keep all unique signatures
-					signatureMap := make(map[string]CodeElement)
-					for _, elem := range elemList {
-						// Create a key that includes signature to differentiate truly different elements
-						key := elem.Signature
-						if key == "" {
-							key = filepath.Base(elem.FilePath) // Use filename as fallback
-						}
-
-						// Prioritize non-header files if signatures are the same
-						if existing, exists := signatureMap[key]; exists {
-							currentExt := strings.ToLower(filepath.Ext(elem.FilePath))
-							existingExt := strings.ToLower(filepath.Ext(existing.FilePath))
-
-							// If current is implementation and existing is header, replace
-							if (currentExt == ".c" || currentExt == ".cpp" || currentExt == ".cc" || currentExt == ".cxx") &&
-								(existingExt == ".h" || existingExt == ".hpp" || existingExt == ".hxx") {
-								signatureMap[key] = elem
-							}
-						} else {
-							signatureMap[key] = elem
-						}
-					}
-
-					// Add all unique signature elements
-					for _, elem := range signatureMap {
-						deduplicatedElements = append(deduplicatedElements, elem)
-					}
-				}
-			}
+	// For each unique signature
+	for _, elemList := range elementMap {
+		if len(elemList) == 1 {
+			// Only one element, keep it
+			deduplicatedElements = append(deduplicatedElements, elemList[0])
+		} else {
+			// Multiple elements with same normalized signature - need to deduplicate
+			chosen := chooseBestElement(elemList)
+			deduplicatedElements = append(deduplicatedElements, chosen)
 		}
 	}
 
 	return deduplicatedElements
+}
+
+// createNormalizedKey creates a normalized key for element matching
+func createNormalizedKey(elem CodeElement) string {
+	// For functions and methods, create a key based on name and normalized signature
+	if elem.Type == TypeFunction || elem.Type == TypeMethod {
+		// Remove extra whitespace and normalize signature
+		normalizedSig := strings.TrimSpace(elem.Signature)
+		normalizedSig = strings.ReplaceAll(normalizedSig, "  ", " ")
+		normalizedSig = strings.ReplaceAll(normalizedSig, "\t", " ")
+
+		// Remove return type for more flexible matching
+		// Look for function name pattern: type function_name(params)
+		if idx := strings.Index(normalizedSig, elem.Name+"("); idx != -1 {
+			// Extract just the function name and parameters part
+			funcPart := normalizedSig[idx:]
+			if endIdx := strings.Index(funcPart, ")"); endIdx != -1 {
+				normalizedSig = funcPart[:endIdx+1]
+			}
+		}
+
+		return fmt.Sprintf("%s:%s:%s", elem.Type, elem.Name, normalizedSig)
+	}
+
+	// For other types, use type:name:signature
+	return fmt.Sprintf("%s:%s:%s", elem.Type, elem.Name, elem.Signature)
+}
+
+// chooseBestElement chooses the best element from a list of duplicates
+func chooseBestElement(elemList []CodeElement) CodeElement {
+	if len(elemList) == 1 {
+		return elemList[0]
+	}
+
+	elementType := elemList[0].Type
+
+	// For functions and methods, prioritize implementation files over header files
+	if elementType == TypeFunction || elementType == TypeMethod {
+		var implementationFiles []CodeElement
+		var headerFiles []CodeElement
+
+		for _, elem := range elemList {
+			ext := strings.ToLower(filepath.Ext(elem.FilePath))
+			if ext == ".c" || ext == ".cpp" || ext == ".cc" || ext == ".cxx" {
+				implementationFiles = append(implementationFiles, elem)
+			} else if ext == ".h" || ext == ".hpp" || ext == ".hxx" {
+				headerFiles = append(headerFiles, elem)
+			}
+		}
+
+		// Prefer implementation files
+		if len(implementationFiles) > 0 {
+			// If multiple implementations, prefer the one with more complete signature or longer description
+			return chooseBestFromSimilar(implementationFiles)
+		}
+
+		// If no implementations, use header files
+		if len(headerFiles) > 0 {
+			return chooseBestFromSimilar(headerFiles)
+		}
+
+		// Fallback to first element
+		return elemList[0]
+	} else if elementType == TypeClass || elementType == TypeStruct || elementType == TypeUnion || elementType == TypeEnum {
+		// For type definitions, prioritize header files as they're typically the canonical definition
+		var headerFiles []CodeElement
+		var implementationFiles []CodeElement
+
+		for _, elem := range elemList {
+			ext := strings.ToLower(filepath.Ext(elem.FilePath))
+			if ext == ".h" || ext == ".hpp" || ext == ".hxx" {
+				headerFiles = append(headerFiles, elem)
+			} else if ext == ".c" || ext == ".cpp" || ext == ".cc" || ext == ".cxx" {
+				implementationFiles = append(implementationFiles, elem)
+			}
+		}
+
+		// Prefer header files for type definitions
+		if len(headerFiles) > 0 {
+			return chooseBestFromSimilar(headerFiles)
+		}
+
+		// If no headers, use implementation files
+		if len(implementationFiles) > 0 {
+			return chooseBestFromSimilar(implementationFiles)
+		}
+
+		// Fallback to first element
+		return elemList[0]
+	} else if elementType == TypeConstant || elementType == TypeMacro || elementType == TypeTypedef {
+		// For constants, macros, and typedefs, prioritize header files
+		return chooseBestByFileType(elemList, true) // true = prefer headers
+	} else {
+		// For other types (variables, namespaces, templates), prefer implementation files
+		return chooseBestByFileType(elemList, false) // false = prefer implementations
+	}
+}
+
+// chooseBestFromSimilar chooses the best element from a list of similar elements
+func chooseBestFromSimilar(elemList []CodeElement) CodeElement {
+	if len(elemList) == 1 {
+		return elemList[0]
+	}
+
+	// Prefer elements with longer, more descriptive signatures or descriptions
+	best := elemList[0]
+	for _, elem := range elemList[1:] {
+		// Prefer element with longer signature (more complete)
+		if len(elem.Signature) > len(best.Signature) {
+			best = elem
+		} else if len(elem.Signature) == len(best.Signature) {
+			// If signatures are same length, prefer element with description
+			if len(elem.Description) > len(best.Description) {
+				best = elem
+			}
+		}
+	}
+
+	return best
+}
+
+// chooseBestByFileType chooses the best element based on file type preference
+func chooseBestByFileType(elemList []CodeElement, preferHeaders bool) CodeElement {
+	var preferredFiles []CodeElement
+	var otherFiles []CodeElement
+
+	for _, elem := range elemList {
+		ext := strings.ToLower(filepath.Ext(elem.FilePath))
+		isHeader := ext == ".h" || ext == ".hpp" || ext == ".hxx"
+
+		if (preferHeaders && isHeader) || (!preferHeaders && !isHeader) {
+			preferredFiles = append(preferredFiles, elem)
+		} else {
+			otherFiles = append(otherFiles, elem)
+		}
+	}
+
+	// Use preferred files if available
+	if len(preferredFiles) > 0 {
+		return chooseBestFromSimilar(preferredFiles)
+	}
+
+	// Otherwise use other files
+	if len(otherFiles) > 0 {
+		return chooseBestFromSimilar(otherFiles)
+	}
+
+	// Fallback to first element
+	return elemList[0]
 }
 
 // buildElementRelations builds relationships between code elements

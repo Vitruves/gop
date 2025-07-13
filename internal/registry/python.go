@@ -48,6 +48,16 @@ func (p *PythonParser) ParseFile(filePath string) ([]Function, error) {
 			continue
 		}
 
+		// Check if we're at the top level (no indentation for def/class)
+		if (strings.HasPrefix(line, "def ") || strings.HasPrefix(line, "async def ") || strings.HasPrefix(line, "class ")) && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			if strings.HasPrefix(line, "class ") {
+				// We're starting a new class, handled above
+			} else {
+				// We're at a top-level function, reset class context
+				currentClass = ""
+			}
+		}
+
 		// Parse function definitions
 		if defMatch := defRegex.FindStringSubmatch(line); defMatch != nil {
 			fnType := defMatch[1]
